@@ -95,7 +95,7 @@ app.post("/api/Cliente/CheckLicense", (req, res) => {
   res.json(data);
 });
 // Iniciar servidor
-const PORT = 3000;
+const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
