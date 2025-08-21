@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { json } = require("express/lib/response");
+const PORT = process.env.PORT || 80;
 
 const iv = Buffer.from("qualityi", "ascii"); // 8 bytes
 const key = Buffer.from("rpaSPvIvVLlrcmtzPU9/c67Gkj7yL1S5", "base64"); // 24 bytes
@@ -70,6 +71,31 @@ app.post("/api/Usuarios", (req, res) => {
   res.status(201).json({ message: "Cliente insertado con éxito", cliente: nuevoCliente });
 });
 // Endpoint 3: buscar cliente por cuit
+app.post("/api/Cliente/ExpireLicense", (req, res) => {
+  const { Usuario, Modelo} = req.body;
+  const clientes = leerClientes();
+  const codigoUsuario = desencriptar(Usuario);
+  const cliente = clientes.find(c => c.Usuario === codigoUsuario);
+  if (!cliente) {
+    return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
+  }
+  cliente.FechaFinal = fechaActualFormateada()
+  guardarClientes(clientes);
+  res.json(cliente);
+});
+app.post("/api/Cliente/RenewLicense", (req, res) => {
+  const { Usuario, Modelo, Dias} = req.body;
+  const clientes = leerClientes();
+  const codigoUsuario = desencriptar(Usuario);
+  const cliente = clientes.find(c => c.Usuario === codigoUsuario);
+  if (!cliente) {
+    return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
+  }
+  cliente.FechaFinal = moverFecha(cliente.FechaFinal, Dias)
+  guardarClientes(clientes);
+  res.json(cliente);
+});
+// Endpoint 3: buscar cliente por cuit
 app.post("/api/Cliente/CheckLicense", (req, res) => {
   const { Usuario, Modelo} = req.body;
   const clientes = leerClientes();
@@ -97,8 +123,31 @@ app.post("/api/Cliente/CheckLicense", (req, res) => {
 
   res.json(data);
 });
+app.post("/api/Cliente/SeeLicense", (req, res) => {
+  const { Usuario, Modelo} = req.body;
+  const clientes = leerClientes();
+  const codigoUsuario = desencriptar(Usuario);
+  const encontrados = clientes.filter(c => c.Usuario === codigoUsuario);
+  if (encontrados.length === 0) {
+    return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
+  }
+  let aviso = 'True';
+  if (encontrados[0].MostrarAviso === 'F'){
+    aviso = 'False';
+  }
+  let bloqueo = 'True';
+  if(encontrados[0].ModoLectura === 'F'){
+    bloqueo = 'False'
+  }
+  const data = {
+    Licencia : encontrados[0].Usuario,
+    FechaVencimiento : encontrados[0].FechaFinal,
+    DiasAviso : encontrados[0].Dias
+  };
+
+  res.json(data);
+});
 // Iniciar servidor
-const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
@@ -141,3 +190,30 @@ function fechaActualFormateada() {
 
   return `${dd}/${MM}/${yyyy} ${HH}:${mm}:${ss}`;
 }
+function moverFecha(fechaStr, dias) {
+  const soloFecha = fechaStr.replace(/\s+/g, " ").trim().split(" ")[0];
+  const [ddStr, MMStr, yyyyStr] = soloFecha.split("/");
+
+  const dd = parseInt(ddStr, 10);
+  const MM = parseInt(MMStr, 10);
+  const yyyy = parseInt(yyyyStr, 10);
+
+  if (!dd || !MM || !yyyy) throw new Error("Formato esperado: dd/MM/yyyy [HH:mm:ss]");
+
+  // Crea fecha local y fija hora 23:59:59
+  const d = new Date(yyyy, MM - 1, dd, 23, 59, 59, 0);
+
+    if (!Number.isFinite(d.getTime())) throw new Error("Fecha inválida");
+
+  // Mueve días (positivos o negativos)
+  d.setDate(d.getDate() + Number(dias || 0));
+
+  // Reafirma 23:59:59 por si hubo salto de horario
+  d.setHours(23, 59, 59, 0);
+  const ddOut = String(d.getDate()).padStart(2, "0");
+  const MMOut = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyyOut = d.getFullYear();
+
+  return `${ddOut}/${MMOut}/${yyyyOut} 23:59:59`;
+}
+
