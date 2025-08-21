@@ -31,6 +31,9 @@ app.get("/api/Usuarios", (req, res) => {
   const clientes = leerClientes();
   res.json(clientes);
 });
+app.get("/", (req, res) => {
+  res.send("📡 Patacom API en funcionamiento - versión 25.08.21");
+});
 // Endpoint 2: agregar cliente si no existe
 app.post("/api/Usuarios", (req, res) => {
   const { Usuario, FechaInicio, FechaFinal, MostrarAviso, Dias, ModoLectura, Mensaje } = req.body;
