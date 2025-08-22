@@ -1,10 +1,11 @@
 // index.js
+require('dotenv').config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { json } = require("express/lib/response");
-const PORT = process.env.PORT || 80;
+const PORT = process.env.PORT;
 
 const iv = Buffer.from("qualityi", "ascii"); // 8 bytes
 const key = Buffer.from("rpaSPvIvVLlrcmtzPU9/c67Gkj7yL1S5", "base64"); // 24 bytes
@@ -14,6 +15,7 @@ app.use(express.json());
 
 // Ruta del archivo JSON que simula la tabla
 const dataFile = path.join(__dirname, "clientes.json");
+const logAccessFile = path.join(__dirname, "AccessLog.json");
 
 // Función auxiliar: leer archivo
 function leerClientes() {
@@ -98,10 +100,13 @@ app.post("/api/Cliente/RenewLicense", (req, res) => {
 // Endpoint 3: buscar cliente por cuit
 app.post("/api/Cliente/CheckLicense", (req, res) => {
   const { Usuario, Modelo} = req.body;
+  const ip = req.ip || req.connection.remoteAddress;
+  
   const clientes = leerClientes();
   const codigoUsuario = desencriptar(Usuario);
   const encontrados = clientes.filter(c => c.Usuario === codigoUsuario);
   if (encontrados.length === 0) {
+    registrarAcceso(ip,"CUIT no encontrado");
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
   let aviso = 'True';
@@ -120,7 +125,7 @@ app.post("/api/Cliente/CheckLicense", (req, res) => {
     ModoBloqueo : encriptar(bloqueo),
     Mensaje : encriptar(encontrados[0].Mensaje)
   };
-
+  registrarAcceso(ip,"Validacion Exitosa");
   res.json(data);
 });
 app.post("/api/Cliente/SeeLicense", (req, res) => {
@@ -146,6 +151,20 @@ app.post("/api/Cliente/SeeLicense", (req, res) => {
   };
 
   res.json(data);
+});
+app.get("/api/Cliente/Log", (req, res) => {
+  // Verifica si el archivo existe
+  if (!fs.existsSync(logAccessFile)) {
+    return res.json([]); // Devuelve array vacío si no hay registros
+  }
+
+  try {
+    const accesos = JSON.parse(fs.readFileSync(logAccessFile, "utf-8"));
+    res.json(accesos);
+  } catch (err) {
+    console.error("Error leyendo accesos.json:", err);
+    res.status(500).json({ error: "No se pudo leer el archivo de accesos" });
+  }
 });
 // Iniciar servidor
 app.listen(PORT, () => {
@@ -215,5 +234,19 @@ function moverFecha(fechaStr, dias) {
   const yyyyOut = d.getFullYear();
 
   return `${ddOut}/${MMOut}/${yyyyOut} 23:59:59`;
+}
+function registrarAcceso(ip,estado) {
+  let accesos = [];
+  if (fs.existsSync(logAccessFile)) {
+    accesos = JSON.parse(fs.readFileSync(logAccessFile, "utf-8"));
+  }
+
+  accesos.push({
+    ip: ip,
+    fecha: fechaActualFormateada(),
+    estado: estado
+  });
+
+  fs.writeFileSync(logAccessFile, JSON.stringify(accesos, null, 2));
 }
 
