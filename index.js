@@ -81,7 +81,7 @@ app.post("/api/Cliente/ExpireLicense", (req, res) => {
   if (!cliente) {
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
-  cliente.FechaFinal = fechaActualFormateada()
+  cliente.FechaFinal = soloFechaActualFormateada()
   guardarClientes(clientes);
   res.json(cliente);
 });
@@ -208,6 +208,19 @@ function fechaActualFormateada() {
   const ss = String(ahora.getSeconds()).padStart(2, "0");
 
   return `${dd}/${MM}/${yyyy} ${HH}:${mm}:${ss}`;
+}
+function soloFechaActualFormateada() {
+  const ahora = new Date();
+
+  const dd = String(ahora.getDate()).padStart(2, "0");
+  const MM = String(ahora.getMonth() + 1).padStart(2, "0"); // Mes comienza en 0
+  const yyyy = ahora.getFullYear();
+
+  const HH = String(ahora.getHours()).padStart(2, "0");
+  const mm = String(ahora.getMinutes()).padStart(2, "0");
+  const ss = String(ahora.getSeconds()).padStart(2, "0");
+
+  return `${dd}/${MM}/${yyyy} 00:00:00`;
 }
 function moverFecha(fechaStr, dias) {
   const soloFecha = fechaStr.replace(/\s+/g, " ").trim().split(" ")[0];
