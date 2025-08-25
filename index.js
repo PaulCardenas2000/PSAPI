@@ -85,6 +85,18 @@ app.post("/api/Cliente/ExpireLicense", (req, res) => {
   guardarClientes(clientes);
   res.json(cliente);
 });
+app.post("/api/Cliente/ChangeLicense", (req, res) => {
+  const { Usuario, Modelo, Fecha} = req.body;
+  const clientes = leerClientes();
+  const codigoUsuario = desencriptar(Usuario);
+  const cliente = clientes.find(c => c.Usuario === codigoUsuario);
+  if (!cliente) {
+    return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
+  }
+  cliente.FechaFinal = Fecha;
+  guardarClientes(clientes);
+  res.json(cliente);
+});
 app.post("/api/Cliente/RenewLicense", (req, res) => {
   const { Usuario, Modelo, Dias} = req.body;
   const clientes = leerClientes();
