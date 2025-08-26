@@ -1,43 +1,25 @@
-// index.js
+const utils = require('./utils.js');
 require('dotenv').config();
 const express = require("express");
 const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
 const { json } = require("express/lib/response");
 const PORT = process.env.PORT;
-
-const iv = Buffer.from("qualityi", "ascii"); // 8 bytes
-const key = Buffer.from("rpaSPvIvVLlrcmtzPU9/c67Gkj7yL1S5", "base64"); // 24 bytes
+const path = require("path");
+const logAccessFile = path.join(__dirname, "AccessLog.json");
 
 const app = express();
 app.use(express.json());
 
-// Ruta del archivo JSON que simula la tabla
-const dataFile = path.join(__dirname, "clientes.json");
-const logAccessFile = path.join(__dirname, "AccessLog.json");
 
-// Función auxiliar: leer archivo
-function leerClientes() {
-  if (!fs.existsSync(dataFile)) return [];
-  const data = fs.readFileSync(dataFile, "utf-8");
-  return JSON.parse(data);
-}
-
-// Función auxiliar: guardar archivo
-function guardarClientes(clientes) {
-  fs.writeFileSync(dataFile, JSON.stringify(clientes, null, 2));
-}
-
-// Endpoint 1: obtener todos los clientes
+app.get("/", (req, res) => {
+  res.send("📡 Patacom API en funcionamiento - versión 25.08.26");
+});
+// Endpoint 1: Te trae todos los datos de licencias para los usuarios
 app.get("/api/Usuarios", (req, res) => {
-  const clientes = leerClientes();
+  const clientes = utils.leerClientes();
   res.json(clientes);
 });
-app.get("/", (req, res) => {
-  res.send("📡 Patacom API en funcionamiento - versión 25.08.21");
-});
-// Endpoint 2: agregar cliente si no existe
+// Endpoint 2: te registra una licencia
 app.post("/api/Usuarios", (req, res) => {
   const { Usuario, FechaInicio, FechaFinal, MostrarAviso, Dias, ModoLectura, Mensaje } = req.body;
 
@@ -45,7 +27,7 @@ app.post("/api/Usuarios", (req, res) => {
     return res.status(400).json({ error: "Faltan campos obligatorios: Usuario, FechaInicio, FechaFinal" });
   }
 
-  let clientes = leerClientes();
+  let clientes = utils.leerClientes();
 
   // Verificar si ya existe el usuario
   const existe = clientes.find(c => c.Usuario === Usuario);
@@ -68,57 +50,60 @@ app.post("/api/Usuarios", (req, res) => {
   };
 
   clientes.push(nuevoCliente);
-  guardarClientes(clientes);
+  utils.guardarClientes(clientes);
 
   res.status(201).json({ message: "Cliente insertado con éxito", cliente: nuevoCliente });
 });
-// Endpoint 3: buscar cliente por cuit
+// Endpoint 3: Expira una licencia llevando a fecha de hoy la fecha de vencimiento
 app.post("/api/Cliente/ExpireLicense", (req, res) => {
   const { Usuario, Modelo} = req.body;
-  const clientes = leerClientes();
-  const codigoUsuario = desencriptar(Usuario);
+  const clientes = utils.leerClientes();
+  const codigoUsuario = utils.desencriptar(Usuario);
+  console.log(clientes)
   const cliente = clientes.find(c => c.Usuario === codigoUsuario);
   if (!cliente) {
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
-  cliente.FechaFinal = soloFechaActualFormateada()
-  guardarClientes(clientes);
+  cliente.FechaFinal = utils.soloFechaActualFormateada()
+  utils.guardarClientes(clientes);
   res.json(cliente);
 });
+// Endpoint 4: Cambia la fecha de licencia 
 app.post("/api/Cliente/ChangeLicense", (req, res) => {
   const { Usuario, Modelo, Fecha} = req.body;
-  const clientes = leerClientes();
-  const codigoUsuario = desencriptar(Usuario);
+  const clientes = utils.leerClientes();
+  const codigoUsuario = utils.desencriptar(Usuario);
   const cliente = clientes.find(c => c.Usuario === codigoUsuario);
   if (!cliente) {
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
   cliente.FechaFinal = Fecha;
-  guardarClientes(clientes);
+  utils.guardarClientes(clientes);
   res.json(cliente);
 });
+// Endpoint 5: renueva la licencia X cantidad de dias, corriendo en una cantidad de dias en el futuro
 app.post("/api/Cliente/RenewLicense", (req, res) => {
   const { Usuario, Modelo, Dias} = req.body;
-  const clientes = leerClientes();
-  const codigoUsuario = desencriptar(Usuario);
+  const clientes = utils.leerClientes();
+  const codigoUsuario = utils.desencriptar(Usuario);
   const cliente = clientes.find(c => c.Usuario === codigoUsuario);
   if (!cliente) {
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
-  cliente.FechaFinal = moverFecha(cliente.FechaFinal, Dias)
-  guardarClientes(clientes);
+  cliente.FechaFinal = utils.moverFecha(cliente.FechaFinal, Dias)
+  utils.guardarClientes(clientes);
   res.json(cliente);
 });
-// Endpoint 3: buscar cliente por cuit
+// Endpoint 6: valida los datos de la licencia
 app.post("/api/Cliente/CheckLicense", (req, res) => {
   const { Usuario, Modelo} = req.body;
   const ip = req.ip || req.connection.remoteAddress;
   
-  const clientes = leerClientes();
-  const codigoUsuario = desencriptar(Usuario);
+  const clientes = utils.leerClientes();
+  const codigoUsuario = utils.desencriptar(Usuario);
   const encontrados = clientes.filter(c => c.Usuario === codigoUsuario);
   if (encontrados.length === 0) {
-    registrarAcceso(ip,"CUIT no encontrado");
+    utils.registrarAcceso(ip,"CUIT no encontrado");
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
   }
   let aviso = 'True';
@@ -130,20 +115,21 @@ app.post("/api/Cliente/CheckLicense", (req, res) => {
     bloqueo = 'False'
   }
   const data = {
-    FechaVencimiento : encriptar(encontrados[0].FechaFinal),
-    FechaConsulta : encriptar(fechaActualFormateada()),//fecha de hoy encriptada
-    MuestraAviso : encriptar(aviso),
-    DiasAviso : encriptar(encontrados[0].Dias.toString()),
-    ModoBloqueo : encriptar(bloqueo),
-    Mensaje : encriptar(encontrados[0].Mensaje)
+    FechaVencimiento : utils.encriptar(encontrados[0].FechaFinal),
+    FechaConsulta : utils.encriptar(utils.fechaActualFormateada()),//fecha de hoy encriptada
+    MuestraAviso : utils.encriptar(aviso),
+    DiasAviso : utils.encriptar(encontrados[0].Dias.toString()),
+    ModoBloqueo : utils.encriptar(bloqueo),
+    Mensaje : utils.encriptar(encontrados[0].Mensaje)
   };
-  registrarAcceso(ip,"Validacion Exitosa");
+  utils.registrarAcceso(ip,"Validacion Exitosa");
   res.json(data);
 });
+// Endpoint 7: muestra la fecha de vencimiento sin hashear para una licencia
 app.post("/api/Cliente/SeeLicense", (req, res) => {
   const { Usuario, Modelo} = req.body;
-  const clientes = leerClientes();
-  const codigoUsuario = desencriptar(Usuario);
+  const clientes = utils.leerClientes();
+  const codigoUsuario = utils.desencriptar(Usuario);
   const encontrados = clientes.filter(c => c.Usuario === codigoUsuario);
   if (encontrados.length === 0) {
     return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
@@ -164,6 +150,7 @@ app.post("/api/Cliente/SeeLicense", (req, res) => {
 
   res.json(data);
 });
+// Endpoint 8: devuelve los logs de accesso a /api/Cliente/CheckLicence
 app.get("/api/Cliente/Log", (req, res) => {
   // Verifica si el archivo existe
   if (!fs.existsSync(logAccessFile)) {
@@ -178,100 +165,37 @@ app.get("/api/Cliente/Log", (req, res) => {
     res.status(500).json({ error: "No se pudo leer el archivo de accesos" });
   }
 });
+// Endpoint 9: devuelve un valor ya encriptado
+app.post("/api/Encriptado", (req, res) => {
+  const { Value} = req.body;
+  const data = {
+    Original : Value,
+    Encriptado : utils.encriptar(Value)
+  };
+  res.json(data);
+});
+// Endpoint 10: Muestra los ednpoints
+app.get("/api/Help", (req, res) => {
+  const rutas = [
+    { method: "GET", path: "/", description: "Ruta raíz, información general de la API" },
+    { method: "GET", path: "/api/Usuarios", description: "Endpoint 1: Te trae todos los datos de licencias para los usuarios" },
+    { method: "POST", path: "/api/Usuarios", description: "Endpoint 2: te registra una licencia" },
+    { method: "POST", path: "/api/Cliente/ExpireLicense", description: "Endpoint 3: Expira una licencia llevando a fecha de hoy la fecha de vencimiento",body: '{"Usuario":"kjs7U0aLquHqUxxw7f8cxQlKCG64T17X", "Modelo":"Muni"}' },
+    { method: "POST", path: "/api/Cliente/ChangeLicense", description: "Endpoint 4: Cambia la fecha de licencia ",body: '{"Usuario":"kjs7U0aLquHqUxxw7f8cxQlKCG64T17X", "Modelo":"Muni", "Fecha": "01/07/2025 00:00:00"}' },
+    { method: "POST", path: "/api/Cliente/RenewLicense", description: "Endpoint 5: renueva la licencia X cantidad de dias, corriendo en una cantidad de dias en el futuro",body: '{"Usuario":"kjs7U0aLquHqUxxw7f8cxQlKCG64T17X", "Modelo":"Muni", "Dias": 30}' },
+    { method: "POST", path: "/api/Cliente/CheckLicense", description: "Endpoint 6: valida los datos de la licencia",body: '{"Usuario":"kjs7U0aLquHqUxxw7f8cxQlKCG64T17X", "Modelo":"Muni"}' },
+    { method: "POST", path: "/api/Cliente/SeeLicense", description: "Endpoint 7: muestra la fecha de vencimiento sin hashear para una licencia",body: '{"Usuario":"kjs7U0aLquHqUxxw7f8cxQlKCG64T17X", "Modelo":"Muni"}' },
+    { method: "GET", path: "/api/Cliente/Log", description: "Endpoint 8: devuelve los logs de accesso a /api/Cliente/CheckLicence"},
+    { method: "POST", path: "/api/Encriptado", description: "Endpoint 9: devuelve un valor ya encriptado",body: '{"Value":"30716332388"}' },
+  ];
+  res.json({
+    message: "Listado de endpoints disponibles",
+    endpoints: rutas
+  });
+});
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
 
-// Encriptar (equivalente a Encriptar en C#)
-function encriptar(input) {
-  try {
-    const cipher = crypto.createCipheriv("des-ede3-cbc", key, iv);
-    let encrypted = cipher.update(input, "utf8", "base64");
-    encrypted += cipher.final("base64");
-    return encrypted;
-  } catch (err) {
-    console.error("Error en encriptar:", err);
-    return "";
-  }
-}
-
-// Desencriptar (equivalente a Desencriptar en C#)
-function desencriptar(input) {
-  try {
-    const decipher = crypto.createDecipheriv("des-ede3-cbc", key, iv);
-    let decrypted = decipher.update(input, "base64", "utf8");
-    decrypted += decipher.final("utf8");
-    return decrypted;
-  } catch (err) {
-    // Igual que en C#, devuelve vacío si falla
-    return "";
-  }
-}
-function fechaActualFormateada() {
-  const ahora = new Date();
-
-  const dd = String(ahora.getDate()).padStart(2, "0");
-  const MM = String(ahora.getMonth() + 1).padStart(2, "0"); // Mes comienza en 0
-  const yyyy = ahora.getFullYear();
-
-  const HH = String(ahora.getHours()).padStart(2, "0");
-  const mm = String(ahora.getMinutes()).padStart(2, "0");
-  const ss = String(ahora.getSeconds()).padStart(2, "0");
-
-  return `${dd}/${MM}/${yyyy} ${HH}:${mm}:${ss}`;
-}
-function soloFechaActualFormateada() {
-  const ahora = new Date();
-
-  const dd = String(ahora.getDate()).padStart(2, "0");
-  const MM = String(ahora.getMonth() + 1).padStart(2, "0"); // Mes comienza en 0
-  const yyyy = ahora.getFullYear();
-
-  const HH = String(ahora.getHours()).padStart(2, "0");
-  const mm = String(ahora.getMinutes()).padStart(2, "0");
-  const ss = String(ahora.getSeconds()).padStart(2, "0");
-
-  return `${dd}/${MM}/${yyyy} 00:00:00`;
-}
-function moverFecha(fechaStr, dias) {
-  const soloFecha = fechaStr.replace(/\s+/g, " ").trim().split(" ")[0];
-  const [ddStr, MMStr, yyyyStr] = soloFecha.split("/");
-
-  const dd = parseInt(ddStr, 10);
-  const MM = parseInt(MMStr, 10);
-  const yyyy = parseInt(yyyyStr, 10);
-
-  if (!dd || !MM || !yyyy) throw new Error("Formato esperado: dd/MM/yyyy [HH:mm:ss]");
-
-  // Crea fecha local y fija hora 23:59:59
-  const d = new Date(yyyy, MM - 1, dd, 23, 59, 59, 0);
-
-    if (!Number.isFinite(d.getTime())) throw new Error("Fecha inválida");
-
-  // Mueve días (positivos o negativos)
-  d.setDate(d.getDate() + Number(dias || 0));
-
-  // Reafirma 23:59:59 por si hubo salto de horario
-  d.setHours(23, 59, 59, 0);
-  const ddOut = String(d.getDate()).padStart(2, "0");
-  const MMOut = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyyOut = d.getFullYear();
-
-  return `${ddOut}/${MMOut}/${yyyyOut} 23:59:59`;
-}
-function registrarAcceso(ip,estado) {
-  let accesos = [];
-  if (fs.existsSync(logAccessFile)) {
-    accesos = JSON.parse(fs.readFileSync(logAccessFile, "utf-8"));
-  }
-
-  accesos.push({
-    ip: ip,
-    fecha: fechaActualFormateada(),
-    estado: estado
-  });
-
-  fs.writeFileSync(logAccessFile, JSON.stringify(accesos, null, 2));
-}
 
