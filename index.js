@@ -6,14 +6,22 @@ const { json } = require("express/lib/response");
 const PORT = process.env.PORT;
 const path = require("path");
 const logAccessFile = path.join(__dirname, "AccessLog.json");
+const http = require('http');
+const htmlRoot = path.join(__dirname, 'html', 'index.html');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'html')));
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'html', 'index.html'));
+});
 
+/*
 app.get("/", (req, res) => {
   res.send("📡 Patacom API en funcionamiento - versión 25.08.26");
-});
+});*/
+
 // Endpoint 1: Te trae todos los datos de licencias para los usuarios
 app.get("/api/Usuarios", (req, res) => {
   const clientes = utils.leerClientes();
