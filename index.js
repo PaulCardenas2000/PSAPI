@@ -4,6 +4,7 @@ const express = require("express");
 const fs = require("fs");
 const { json } = require("express/lib/response");
 const PORT = process.env.PORT;
+const UPLOAD_FOLDER = process.env.UPLOAD_FOLDER;
 const path = require("path");
 const logAccessFile = path.join(__dirname, "AccessLog.json");
 const http = require('http');
@@ -16,11 +17,6 @@ app.use(express.static(path.join(__dirname, 'html')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'html', 'index.html'));
 });
-
-/*
-app.get("/", (req, res) => {
-  res.send("📡 Patacom API en funcionamiento - versión 25.08.26");
-});*/
 
 // Endpoint 1: Te trae todos los datos de licencias para los usuarios
 app.get("/api/Usuarios", (req, res) => {
@@ -200,6 +196,57 @@ app.get("/api/Help", (req, res) => {
     message: "Listado de endpoints disponibles",
     endpoints: rutas
   });
+});
+// Endpoint 11: Este endpoint se encarga de la carga de archivos en una carpeta interna del proyecto
+app.post("/api/Upload", (req, res) => {
+  const upload = utils.configurarMulter(UPLOAD_FOLDER).single("archivo");
+  upload(req, res, (err) => {
+    //const customName = req.body.nombreArchivo || req.file.originalname;
+    //console.log(customName)
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "No se envió ningún archivo" });
+    }
+    res.json({
+      mensaje: "Archivo subido con éxito",
+      nombre: req.file.originalname,
+      ruta: path.join(UPLOAD_FOLDER, req.file.originalname)
+    });
+  });
+});
+// Endpoint 12: Este endpoint descarga el archivo del proyecto
+app.get("/api/Download/:filename", (req, res) => {
+  const fileName = req.params.filename;
+  const filePath = path.join(UPLOAD_FOLDER, fileName);
+
+  // Verificar si existe
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Archivo no encontrado" });
+  }
+
+  // Forzar descarga
+  res.download(filePath, fileName, (err) => {
+    if (err) {
+      console.error("Error al enviar archivo:", err);
+      res.status(500).json({ error: "Error al enviar archivo" });
+    }
+  });
+});
+// Endpoint 12: Devuelve los archivos dentro en la carpeta de descargas
+app.get("/api/Files", async (req, res) => {
+  try {
+    const files = await utils.listFiles(UPLOAD_FOLDER);
+    res.json({ archivos: files });
+  } catch (err) {
+    console.error("Error al leer la carpeta:", err);
+    res.status(500).json({ error: "No se pudo listar los archivos" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
 // Iniciar servidor
 app.listen(PORT, () => {

@@ -1,7 +1,9 @@
-const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { json } = require("express/lib/response");
+const multer = require("multer");
+const fs = require("fs");
+
 
 const iv = Buffer.from("qualityi", "ascii"); // 8 bytes
 const key = Buffer.from("rpaSPvIvVLlrcmtzPU9/c67Gkj7yL1S5", "base64"); // 24 bytes
@@ -109,13 +111,42 @@ function registrarAcceso(ip,estado) {
 
   fs.writeFileSync(logAccessFile, JSON.stringify(accesos, null, 2));
 }
+function generarCarpetaUpload(folderPath) {
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+    console.log(`Carpeta ${folderPath} creada`);
+  }
+}
+function configurarMulter(folderPath, fileName) {
+  const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      generarCarpetaUpload(folderPath);
+      cb(null, folderPath);
+    },
+    filename: (req, file, cb) => {
+      if (fileName && fileName.trim() !== "") {
+        cb(null, fileName + path.extname(file.originalname));
+      } else {
+        cb(null, file.originalname);
+      }
+    }
+  });
+
+  return multer({ storage });
+}
+function listFiles(folderPath) {
+  return fs.promises.readdir(folderPath);
+}
 module.exports = {
-    encriptar,
-    desencriptar,
-    fechaActualFormateada,
-    soloFechaActualFormateada,
-    moverFecha,
-    registrarAcceso,
-    leerClientes,
-    guardarClientes
+  encriptar,
+  desencriptar,
+  fechaActualFormateada,
+  soloFechaActualFormateada,
+  moverFecha,
+  registrarAcceso,
+  leerClientes,
+  guardarClientes,
+  generarCarpetaUpload,
+  configurarMulter,
+  listFiles
 }
