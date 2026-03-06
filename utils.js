@@ -3,7 +3,12 @@ const crypto = require("crypto");
 const { json } = require("express/lib/response");
 const multer = require("multer");
 const fs = require("fs");
+require('dotenv').config();
+const UPLOAD_FOLDER = process.env.UPLOAD_FOLDER;
+const { obtenerRutaBasePorId } = require('./versionManager');
+const { env } = require("process");
 
+const LICENCIAS_VALIDAS = ['PYME', 'SHOP', 'MUNI'];
 
 const iv = Buffer.from("qualityi", "ascii"); // 8 bytes
 const key = Buffer.from("rpaSPvIvVLlrcmtzPU9/c67Gkj7yL1S5", "base64"); // 24 bytes
@@ -84,7 +89,7 @@ function moverFecha(fechaStr, dias) {
   // Crea fecha local y fija hora 23:59:59
   const d = new Date(yyyy, MM - 1, dd, 23, 59, 59, 0);
 
-    if (!Number.isFinite(d.getTime())) throw new Error("Fecha inválida");
+  if (!Number.isFinite(d.getTime())) throw new Error("Fecha inválida");
 
   // Mueve días (positivos o negativos)
   d.setDate(d.getDate() + Number(dias || 0));
@@ -97,7 +102,7 @@ function moverFecha(fechaStr, dias) {
 
   return `${ddOut}/${MMOut}/${yyyyOut} 23:59:59`;
 }
-function registrarAcceso(ip,estado) {
+function registrarAcceso(ip, estado) {
   let accesos = [];
   if (fs.existsSync(logAccessFile)) {
     accesos = JSON.parse(fs.readFileSync(logAccessFile, "utf-8"));
@@ -111,32 +116,155 @@ function registrarAcceso(ip,estado) {
 
   fs.writeFileSync(logAccessFile, JSON.stringify(accesos, null, 2));
 }
+//valido si la extension del archivo es .zip
+function esZip(nombreArchivo) {
+  return path.extname(nombreArchivo).toLowerCase() === '.zip';
+}
 function generarCarpetaUpload(folderPath) {
   if (!fs.existsSync(folderPath)) {
     fs.mkdirSync(folderPath, { recursive: true });
     console.log(`Carpeta ${folderPath} creada`);
   }
 }
-function configurarMulter(folderPath, fileName) {
+function configurarMulter(formatosPermitidos = null) {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      generarCarpetaUpload(folderPath);
-      cb(null, folderPath);
+      const Usuario = req.body.Usuario || "default";
+      let FOLDER = path.join(UPLOAD_FOLDER,obtenerNombreCliente(Usuario)) ;
+      generarCarpetaUpload(FOLDER);
+      cb(null, FOLDER);
     },
     filename: (req, file, cb) => {
+      const fileName = req.body.Modelo || "default";
       if (fileName && fileName.trim() !== "") {
-        cb(null, fileName + path.extname(file.originalname));
-      } else {
-        cb(null, file.originalname);
+        const version = generarNombreVersion(fileName);
+        return cb(null, version + path.extname(file.originalname));
       }
+
+      cb(null, file.originalname);
     }
   });
 
-  return multer({ storage });
+  const fileFilter = (req, file, cb) => {
+    if (!formatosPermitidos || formatosPermitidos.length === 0) {
+      return cb(null, true); // no filtra
+    }
+
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (!formatosPermitidos.map(f => f.toLowerCase()).includes(ext)) {
+      const err = new Error(
+        `Formato inválido. Permitidos: ${formatosPermitidos.join(', ')}`
+      );
+      err.statusCode = 400;
+      return cb(err, false);
+    }
+
+    cb(null, true);
+  };
+
+  return multer({
+    storage,
+    fileFilter
+  });
 }
 function listFiles(folderPath) {
   return fs.promises.readdir(folderPath);
 }
+//limpio el contenido de una carpeta a excepcion del archivo del parametro, esto es para evitar mas de un archivo en la carpeta de actualizacion del sistema
+function limpiarCarpetaExcepto(carpeta, archivoAConservar) {
+  const archivos = fs.readdirSync(carpeta);
+  
+  archivos.forEach(nombre => {
+    if (nombre !== archivoAConservar) {
+      const ruta = path.join(carpeta, nombre);
+      fs.unlinkSync(ruta);
+    }
+  });
+}
+//genera nombres de version 
+function generarNombreVersion(nombreProducto) {
+  const ahora = new Date();
+
+  const año = ahora.getFullYear();
+  const mes = String(ahora.getMonth() + 1).padStart(2, '0');
+  const dia = String(ahora.getDate()).padStart(2, '0');
+  const hora = String(ahora.getHours()).padStart(2, '0');
+  const minutos = String(ahora.getMinutes()).padStart(2, '0');
+
+  return `${nombreProducto}_V${año}${mes}${dia}${hora}${minutos}`;
+}
+//
+function obtenerDescargaPyme() {
+  let rutaPyme = obtenerRutaBasePorId("PYME")
+  if (!fs.existsSync(rutaPyme)) {
+    return null;
+  }
+
+  const archivos = fs
+    .readdirSync(rutaPyme)
+    .filter(f => fs.statSync(path.join(rutaPyme, f)).isFile());
+
+  if (archivos.length === 0) {
+    return null;
+  }
+
+  if (archivos.length > 1) {
+    throw new Error('Hay más de un archivo en la carpeta de descargas');
+  }
+
+  return archivos[0];
+}
+
+function obtenerNombreCliente(Usuario) {
+  const clientes = leerClientes();
+  const encontrados = clientes.filter(c => c.Usuario === Usuario);
+  if (encontrados.length === 0) {
+    return res.status(404).json({ message: "No se encontró cliente con ese CUIT" });
+  }
+  let ruta  = encontrados[0].Nombre;
+
+  if (ruta === "") {
+    return encontrados[0].Usuario;
+  }
+
+  return encontrados[0].Nombre;
+}
+
+function validarTipoLicencia(nombreVersion) {
+  if (!nombreVersion || typeof nombreVersion !== 'string') {
+    throw new Error('Debe especificar una licencia válida');
+  }
+
+  const licenciaNormalizada = nombreVersion.trim().toUpperCase();
+
+  if (!LICENCIAS_VALIDAS.includes(licenciaNormalizada)) {
+    throw new Error(`Licencia inválida: ${nombreVersion}`);
+  }
+
+  return licenciaNormalizada;
+}
+function estaVencida(fechaStr) {
+  // fechaStr = "dd/MM/yyyy HH:mm:ss"
+
+  const [fecha, hora] = fechaStr.split(" ");
+  const [dd, MM, yyyy] = fecha.split("/");
+  const [HH, mm, ss] = hora.split(":");
+
+  const fechaLicencia = new Date(
+    Number(yyyy),
+    Number(MM) - 1, // meses empiezan en 0
+    Number(dd),
+    Number(HH),
+    Number(mm),
+    Number(ss)
+  );
+
+  const ahora = new Date();
+
+  return fechaLicencia < ahora;
+}
+
 module.exports = {
   encriptar,
   desencriptar,
@@ -148,5 +276,12 @@ module.exports = {
   guardarClientes,
   generarCarpetaUpload,
   configurarMulter,
-  listFiles
+  listFiles,
+  esZip,
+  limpiarCarpetaExcepto,
+  generarNombreVersion,
+  obtenerDescargaPyme,
+  validarTipoLicencia,
+  estaVencida,
+  obtenerNombreCliente
 }
